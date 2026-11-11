@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#FAF9F7">
+<title>PREVIEW (fake data) - OFA Referee Portal redesign</title>
+<meta name="robots" content="noindex">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  /* Design tokens. These replace Tailwind's defaults, so only these colours, sizes and steps exist.
+     Type: 12/14/16/20/24/32px. Spacing: 4px steps (1=4, 2=8, 3=12, 4=16, 6=24, 8=32, 12=48, 16=64). */
+  tailwind.config = { theme: {
+    colors: {
+      transparent: 'transparent', current: 'currentColor',
+      page: '#FAF9F7', surface: '#FFFFFF', hairline: '#E8E6E1',
+      ink: { DEFAULT: '#1A1A1A', 2: '#5F5E5A', 3: '#74736E' },
+      success: { DEFAULT: '#2E6B47', soft: '#EAF3ED' },
+      danger: { DEFAULT: '#A8281F', soft: '#FBECEA' },
+      warning: { DEFAULT: '#7A5200', soft: '#FBF1DC' },
+    },
+    fontSize: {
+      xs: ['12px', '16px'], sm: ['14px', '20px'], base: ['16px', '24px'],
+      lg: ['20px', '28px'], xl: ['24px', '32px'], '2xl': ['32px', { lineHeight: '40px', letterSpacing: '-0.02em' }],
+    },
+    spacing: { 0: '0', px: '1px', 1: '4px', 2: '8px', 3: '12px', 4: '16px', 6: '24px', 8: '32px', 12: '48px', 16: '64px' },
+    borderRadius: { none: '0', inner: '12px', card: '16px', full: '9999px' },
+    boxShadow: { none: 'none', card: '0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04)', pop: '0 8px 32px rgba(0,0,0,.12)' },
+    extend: {
+      fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'], display: ['Newsreader', 'Georgia', 'serif'] },
+      maxWidth: { content: '960px', form: '440px', prose: '65ch' },
+      borderColor: { DEFAULT: '#E8E6E1' },
+    },
+  } };
+</script>
+<script src="preview-mock.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,600&display=swap" rel="stylesheet">
+<style>
+  /* Only what Tailwind utilities can't express: a site-wide focus ring, motion preference, and print rules. */
+  :focus-visible { outline: 2px solid #1A1A1A; outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+  /* Print only the open modal (the rooming list), not the page behind it */
+  @media print {
+    body > *:not(#modal) { display: none !important; }
+    body { background: #fff !important; }
+    #modal { position: static !important; display: block !important; background: none !important; padding: 0 !important; overflow: visible !important; }
+    #modal > div { box-shadow: none !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+    #modal .print-scroll { max-height: none !important; overflow: visible !important; }
+    #modal .no-print { display: none !important; }
+  }
+</style>
+</head>
+<body class="bg-page text-ink min-h-screen flex flex-col font-sans antialiased">
+
+<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[70] focus:rounded-full focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:shadow-pop">Skip to main content</a>
+
+<header class="bg-surface border-b border-hairline">
+ <div class="max-w-content mx-auto px-4 sm:px-6 flex flex-wrap items-center justify-between gap-x-8">
+  <p class="order-1 h-16 flex items-center text-base font-semibold tracking-tight text-ink">OFA Referees</p>
+  <nav id="nav" aria-label="Portal sections" class="hidden order-3 md:order-2 w-[calc(100%+32px)] md:w-auto md:flex-1 min-w-0 overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 -mb-px">
+   <div id="tabs" class="flex gap-6 min-w-max"></div>
+  </nav>
+  <div id="badge" class="order-2 md:order-3 hidden items-center gap-4 h-16">
+   <span id="hName" class="hidden sm:inline text-sm text-ink-2"></span>
+   <button type="button" onclick="logout()" class="text-sm font-medium text-ink underline decoration-hairline underline-offset-4 hover:decoration-ink">Sign out</button>
+  </div>
+ </div>
+</header>
+
+<main id="main" tabindex="-1" class="flex-grow max-w-content w-full mx-auto px-4 sm:px-6 py-8 sm:py-12 focus:outline-none">
+ <div id="loadErr" class="hidden mb-8" role="alert"></div>
+
+ <section id="login" class="max-w-form mx-auto sm:pt-8" aria-labelledby="authTitle">
+  <h1 id="authTitle" class="font-display text-2xl font-semibold text-ink">Sign in</h1>
+  <p id="authSub" class="mt-2 text-base text-ink-2">Check your schedule and tell assignors when you can referee.</p>
+  <form id="authForm" onsubmit="doAuth(event)" class="mt-8" novalidate>
+   <div id="authMsg" data-surface class="hidden mb-6" aria-live="polite"></div>
+   <div id="setupWarn" class="hidden mb-6"></div>
+
+   <div id="signupFields" class="grid grid-rows-[0fr] opacity-0 transition-all duration-300 ease-out">
+    <div id="signupInner" class="overflow-hidden -m-1 p-1" inert>
+     <div class="space-y-6 pb-6">
+      <div><label for="aName" class="block text-sm font-medium text-ink mb-2">Full name</label>
+       <input id="aName" autocomplete="name" aria-required="true" class="block w-full h-12 rounded-inner bg-surface px-4 text-base text-ink border border-ink-3 hover:border-ink aria-[invalid=true]:border-2 aria-[invalid=true]:border-danger">
+       <p id="aName-err" class="hidden mt-2 text-sm text-danger"></p></div>
+      <div><label for="aGender" class="block text-sm font-medium text-ink mb-2">Gender</label>
+       <select id="aGender" aria-required="true" class="block w-full h-12 rounded-inner bg-surface px-4 text-base text-ink border border-ink-3 hover:border-ink aria-[invalid=true]:border-2 aria-[invalid=true]:border-danger">
+        <option value="">Select gender…</option>
+        <option value="Male">Male</option>
+        <option value="Female">Female</option>
+       </select>
+       <p id="aGender-err" class="hidden mt-2 text-sm text-danger"></p></div>
+      <div><label for="aPhone" class="block text-sm font-medium text-ink mb-2">Phone number</label>
+       <input id="aPhone" type="tel" autocomplete="tel" aria-required="true" placeholder="(123) 456-7890" class="block w-full h-12 rounded-inner bg-surface px-4 text-base text-ink placeholder:text-ink-3 border border-ink-3 hover:border-ink aria-[invalid=true]:border-2 aria-[invalid=true]:border-danger">
+       <p id="aPhone-err" class="hidden mt-2 text-sm text-danger"></p></div>
+      <div><label for="aRegion" class="block text-sm font-medium text-ink mb-2">Home region</label>
+       <input id="aRegion" aria-required="true" aria-describedby="aRegion-hint" class="block w-full h-12 rounded-inner bg-surface px-4 text-base text-ink border border-ink-3 hover:border-ink aria-[invalid=true]:border-2 aria-[invalid=true]:border-danger">
+       <p id="aRegion-hint" class="mt-2 text-sm text-ink-3">For example Central, East, West or North.</p>
+       <p id="aRegion-err" class="hidden mt-2 text-sm text-danger"></p></div>
+     </div>
+    </div>
+   </div>
+
+   <div class="space-y-6">
+    <div><label for="aEmail" class="block text-sm font-medium text-ink mb-2">Email address</label>
+     <input type="email" id="aEmail" autocomplete="email" aria-required="true" class="block w-full h-12 rounded-inner bg-surface px-4 text-base text-ink border border-ink-3 hover:border-ink aria-[invalid=true]:border-2 aria-[invalid=true]:border-danger">
+     <p id="aEmail-err" class="hidden mt-2 text-sm text-danger"></p></div>
+    <div><label for="aPass" class="block text-sm font-medium text-ink mb-2">Password</label>
+     <input type="password" id="aPass" autocomplete="current-password" aria-required="true" class="block w-full h-12 rounded-inner bg-surface px-4 text-base text-ink border border-ink-3 hover:border-ink aria-[invalid=true]:border-2 aria-[invalid=true]:border-danger">
+     <p id="passHint" class="hidden mt-2 text-sm text-ink-3">At least 10 characters.</p>
+     <p id="aPass-err" class="hidden mt-2 text-sm text-danger"></p></div>
+    <button id="authBtn" class="w-full inline-flex items-center justify-center h-12 px-6 rounded-full bg-ink text-surface text-sm font-medium hover:bg-ink/90 disabled:opacity-50 disabled:cursor-wait">Sign in</button>
+   </div>
+   <div class="mt-6 flex flex-wrap justify-between gap-4 text-sm">
+    <button type="button" onclick="toggleMode()" id="modeLink" class="font-medium text-ink underline decoration-hairline underline-offset-4 hover:decoration-ink">Create an account</button>
+    <button type="button" onclick="forgot()" class="font-medium text-ink underline decoration-hairline underline-offset-4 hover:decoration-ink">Forgot password?</button></div>
+  </form>
+ </section>
+
+ <div id="dash" class="hidden">
+  <section id="v-availability"></section><section id="v-profile" class="hidden"></section>
+  <section id="v-directory" class="hidden"></section>
+  <section id="v-assignor" class="hidden"></section><section id="v-admin" class="hidden"></section>
+ </div>
+</main>
+
+<footer class="mt-auto py-8 text-center text-xs text-ink-3">© 2026 Ontario Fencing Association (OFA)</footer>
+<div id="toasts" class="fixed z-[60] bottom-6 inset-x-4 flex flex-col items-center gap-2 pointer-events-none" aria-live="polite"></div>
+<div id="modal" class="hidden fixed inset-0 bg-ink/40 z-50 items-start sm:items-center justify-center p-4 overflow-y-auto"></div>
+
+<script>
+/* Supabase > Project Settings > API. The anon key is meant to be public; row-level security protects the data. */
+const CFG = { URL: 'https://drshtcvadkznkpeecgdi.supabase.co', KEY: 'sb_publishable_fQiq5V28jk-oPuC9Mu6o1w_E1W0VmXh' };
+const configured = !CFG.URL.includes('YOUR-PROJECT');
+const sb = configured ? supabase.createClient(CFG.URL, CFG.KEY) : null;
+
+const WR = ['Unrated','Rc','R','P2','P1','N4','N3','N2','N1','B','A'], PR = ['Unrated','B'];
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let S = { uid: null, me: null, users: [], events: [], av: [], asg: [] }, tab = 'availability', aEv = null, signup = false, aSort = 'name', dirQuery = '', recovering = false;
+
+/* Helper to check if a referee only has Rc or Unrated ratings */
+function isRcOrUnratedOnly(u) {
+  const allowed = ['Unrated', 'Rc'];
+  return allowed.includes(u.foil) && allowed.includes(u.epee) && allowed.includes(u.sabre) && allowed.includes(u.para);
+}
+
+/* Helper to check if a referee is completely unrated across all weapons */
+function isCompletelyUnrated(u) {
+  return u.foil === 'Unrated' && u.epee === 'Unrated' && u.sabre === 'Unrated' && u.para === 'Unrated';
+}
+
+/* ===== Design system ===== */
+const C = {
+  input: 'block w-full h-12 rounded-inner bg-surface px-4 text-base text-ink placeholder:text-ink-3 border border-ink-3 hover:border-ink aria-[invalid=true]:border-2 aria-[invalid=true]:border-danger',
+  ro: 'block w-full h-12 rounded-inner bg-page px-4 text-base text-ink-2 border border-hairline',
+  label: 'block text-sm font-medium text-ink mb-2',
+  hint: 'mt-2 text-sm text-ink-3',
+  err: 'mt-2 text-sm text-danger',
+  primary: 'inline-flex items-center justify-center gap-2 h-12 px-6 rounded-full bg-ink text-surface text-sm font-medium whitespace-nowrap hover:bg-ink/90 disabled:opacity-50 disabled:cursor-not-allowed',
+  secondary: 'inline-flex items-center justify-center gap-2 h-[40px] px-4 rounded-full bg-surface text-ink text-sm font-medium whitespace-nowrap border border-hairline hover:border-ink-3 disabled:opacity-50 disabled:cursor-not-allowed',
+  danger: 'inline-flex items-center justify-center gap-2 h-12 px-6 rounded-full bg-danger text-surface text-sm font-medium whitespace-nowrap hover:bg-danger/90',
+  link: 'text-sm font-medium text-ink underline decoration-hairline underline-offset-4 hover:decoration-ink disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed',
+  iconBtn: 'grid place-items-center shrink-0 w-[40px] h-[40px] rounded-full text-ink-2 hover:text-ink hover:bg-page',
+};
+const viewHead = (title, desc, actions = '') => `<div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8 sm:mb-12">
+  <div><h1 class="font-display text-2xl font-semibold text-ink">${title}</h1>${desc ? `<p class="mt-2 text-base text-ink-2 max-w-prose">${desc}</p>` : ''}</div>${actions}</div>`;
+const sectionHead = (title, desc = '', actions = '') => `<div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+  <div><h2 class="text-lg font-semibold text-ink">${title}</h2>${desc ? `<p class="mt-1 text-sm text-ink-2 max-w-prose">${desc}</p>` : ''}</div>${actions}</div>`;
+
+/* Status colour only ever appears as a small dot, always next to a word. */
+const TONE = { success: 'bg-success', danger: 'bg-danger', warning: 'bg-warning', none: 'border border-ink-3' };
+const dot = tone => `<span class="inline-block shrink-0 w-2 h-2 rounded-full ${TONE[tone]}" aria-hidden="true"></span>`;
+const STATUS = { available: ['success', 'Available'], partial: ['warning', 'Partly available'], unavailable: ['danger', 'Unavailable'], unanswered: ['none', 'Not answered'] };
+const statusLabel = s => `<span class="inline-flex items-center gap-2 text-sm text-ink-2 whitespace-nowrap">${dot(STATUS[s][0])}${STATUS[s][1]}</span>`;
+const KIND = { error: 'danger', success: 'success', info: 'none', warn: 'warning' };
+/* A calm note: a dot, an optional short title, and a sentence. */
+const note = (tone, title, body, extra = '') => `<div class="flex gap-3 rounded-inner bg-page p-4 ${extra}">
+  <span class="mt-[6px]">${dot(tone)}</span><p class="text-sm text-ink-2 max-w-prose">${title ? `<span class="font-medium text-ink">${title}</span> ` : ''}${body}</p></div>`;
+const card = (inner, extra = '') => `<div class="bg-surface rounded-card shadow-card p-6 sm:p-8 ${extra}">${inner}</div>`;
+const emptyState = (line, action = '') => card(`<p class="text-base text-ink-2">${line}</p>${action ? `<div class="mt-6">${action}</div>` : ''}`, 'text-center');
+/* Small inline icons, used only where they carry meaning. */
+const ICON = {
+  lock: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>',
+  check: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M2.5 6.5l2.25 2.25L9.5 3.75"/></svg>',
+  x: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+};
+
+/* Form fields: label above, hint and error below. Fields are required unless marked optional. */
+function field({ id, label, value = '', type = 'text', hint = '', optional = false, readonly = false, name = '', attrs = '' }) {
+  return `<div><label for="${id}" class="${C.label}">${label}${optional ? ' <span class="font-normal text-ink-3">(optional)</span>' : ''}</label>
+   <input id="${id}" ${name ? `name="${name}"` : ''} type="${type}" value="${esc(value)}" ${readonly ? 'readonly' : optional ? '' : 'aria-required="true"'} ${hint ? `aria-describedby="${id}-hint"` : ''} ${attrs} class="${readonly ? C.ro : C.input}">
+   ${hint ? `<p id="${id}-hint" class="${C.hint}">${hint}</p>` : ''}<p id="${id}-err" class="hidden ${C.err}"></p></div>`;
+}
+function selectField({ id, label, options, name = '', hint = '', attrs = '' }) {
+  return `<div><label for="${id}" class="${C.label}">${label}</label>
+   <select id="${id}" ${name ? `name="${name}"` : ''} ${hint ? `aria-describedby="${id}-hint"` : ''} ${attrs} class="${C.input}">${options}</select>
+   ${hint ? `<p id="${id}-hint" class="${C.hint}">${hint}</p>` : ''}<p id="${id}-err" class="hidden ${C.err}"></p></div>`;
+}
+const opts = (arr, v) => arr.map(x => `<option ${x === v ? 'selected' : ''}>${x}</option>`).join('');
+const genderOpts = g => `<option value="">Select gender…</option><option value="Male" ${g === 'Male' ? 'selected' : ''}>Male</option><option value="Female" ${g === 'Female' ? 'selected' : ''}>Female</option>`;
+
+/* Tables that turn into stacked cards below the md breakpoint. Cells carry data-label for their mobile caption. */
+const TB = {
+  wrap: 'md:bg-surface md:rounded-card md:shadow-card md:px-6 md:py-2',
+  table: 'w-full text-left text-sm max-md:block',
+  thead: 'max-md:hidden',
+  th: 'py-4 pr-4 last:pr-0 text-sm font-normal text-ink-2 border-b border-hairline align-bottom',
+  tbody: 'max-md:block max-md:space-y-3 md:divide-y md:divide-hairline',
+  tr: 'max-md:grid max-md:gap-x-4 max-md:gap-y-4 max-md:rounded-card max-md:bg-surface max-md:p-6 max-md:shadow-card',
+  td: 'md:py-4 md:pr-4 md:last:pr-0 align-top min-w-0',
+  lbl: 'max-md:before:block max-md:before:content-[attr(data-label)] max-md:before:mb-1 max-md:before:text-xs max-md:before:text-ink-3',
+};
+
+/* Inline message in a container (by id); with no container it falls back to a toast. Pass no text to clear.
+   Containers marked data-compact show a single dot + line; data-surface ones sit on the page background. */
+function say(where, kind, text) {
+  const el = typeof where === 'string' ? $(where) : where;
+  if (!el) return text && toast(text, kind);
+  if (!text) { el.innerHTML = ''; el.classList.add('hidden'); return; }
+  el.innerHTML = 'compact' in el.dataset
+    ? `<p class="inline-flex items-center gap-2 text-sm ${kind === 'error' ? 'text-danger' : 'text-ink-2'}">${dot(KIND[kind])}${esc(text)}</p>`
+    : note(KIND[kind], '', `<span class="text-ink">${esc(text)}</span>`, 'surface' in el.dataset ? '!bg-surface shadow-card' : '');
+  el.classList.remove('hidden');
+}
+function toast(text, kind = 'success') {
+  const t = document.createElement('div');
+  t.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+  t.className = 'pointer-events-auto flex items-center gap-3 max-w-form rounded-full bg-surface shadow-pop py-2 pl-4 pr-2 text-sm text-ink';
+  t.innerHTML = `${dot(KIND[kind])}<p class="flex-1">${esc(text)}</p>
+    <button type="button" aria-label="Dismiss" class="grid place-items-center w-8 h-8 rounded-full text-ink-2 hover:text-ink">${ICON.x}</button>`;
+  t.querySelector('button').onclick = () => t.remove();
+  $('toasts').appendChild(t);
+  setTimeout(() => t.remove(), kind === 'error' ? 8000 : 4000);
+}
+/* Show an error under a field (or in the given message area), mark it invalid and move focus to it. */
+function fieldErr(id, where, text) {
+  const f = $(id), err = $(id + '-err');
+  if (err) { err.textContent = text; err.classList.remove('hidden'); } else say(where, 'error', text);
+  if (f) {
+    const ids = (f.getAttribute('aria-describedby') || '').split(' ').filter(Boolean), tgt = err ? err.id : where;
+    if (!ids.includes(tgt)) ids.push(tgt);
+    f.setAttribute('aria-invalid', 'true'); f.setAttribute('aria-describedby', ids.join(' ')); f.focus();
+  }
+}
+function clearErrs(scope) {
+  scope?.querySelectorAll('[id$="-err"]').forEach(e => { e.textContent = ''; e.classList.add('hidden'); });
+  scope?.querySelectorAll('[aria-invalid]').forEach(e => e.removeAttribute('aria-invalid'));
+}
+const clearOne = e => { if (e.target.id && e.target.removeAttribute) { e.target.removeAttribute('aria-invalid'); const er = $(e.target.id + '-err'); if (er) { er.textContent = ''; er.classList.add('hidden'); } } };
+document.addEventListener('input', clearOne);
+document.addEventListener('change', clearOne);
+
+/* Disable a button while its request is in flight. */
+async function busy(btn, fn) {
+  if (!btn) return fn();
+  btn.disabled = true; btn.setAttribute('aria-busy', 'true');
+  try { return await fn(); } finally { btn.disabled = false; btn.removeAttribute('aria-busy'); }
+}
+/* Re-render something and put keyboard focus back on the equivalent control (matched by data-key). */
+function withFocus(fn) {
+  const a = document.activeElement, key = a?.dataset?.key;
+  fn();
+  const moved = document.activeElement && document.activeElement !== document.body; // fn() may have placed focus itself
+  if (key && !document.contains(a) && !moved) document.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
+}
+
+/* Connection status: say nothing while things work; show one quiet message when loading fails. */
+function setCloud(ok) {
+  $('loadErr').classList.toggle('hidden', ok);
+  $('loadErr').innerHTML = ok ? '' : note('danger', 'We couldn’t load the latest data.', `Check your connection, then <button type="button" onclick="refresh()" class="${C.link}">try again</button>.`, '!bg-surface shadow-card');
+}
+const fail = (r, where) => { if (r?.error) { say(where, 'error', r.error.message); return true; } return false; };
+
+/* ===== Auth ===== */
+function toggleMode() {
+  signup = !signup;
+  const f = $('signupFields');
+  f.classList.toggle('grid-rows-[1fr]', signup); f.classList.toggle('grid-rows-[0fr]', !signup); f.classList.toggle('opacity-0', !signup);
+  $('signupInner').inert = !signup;
+  $('authTitle').textContent = signup ? 'Create an account' : 'Sign in';
+  $('authSub').textContent = signup ? 'Referees create their own account. An OFA admin sets your ratings afterwards.' : 'Check your schedule and tell assignors when you can referee.';
+  $('authBtn').textContent = signup ? 'Create account' : 'Sign in';
+  $('modeLink').textContent = signup ? 'I already have an account' : 'Create an account';
+  $('aPass').autocomplete = signup ? 'new-password' : 'current-password';
+  $('passHint').classList.toggle('hidden', !signup);
+  $('aPass').setAttribute('aria-describedby', signup ? 'passHint' : '');
+  say('authMsg'); clearErrs($('authForm'));
+  if (signup) $('aName').focus();
+}
+async function doAuth(e) {
+  e.preventDefault(); if (!sb) return;
+  say('authMsg'); clearErrs($('authForm'));
+  const email = $('aEmail').value.trim(), password = $('aPass').value;
+  if (signup) {
+    const name = $('aName').value.trim();
+    const gender = $('aGender').value;
+    const phone = $('aPhone').value.trim();
+    const region = $('aRegion').value.trim();
+
+    if (!name) return fieldErr('aName', 'authMsg', 'Please enter your full name.');
+    if (!gender) return fieldErr('aGender', 'authMsg', 'Please select your gender.');
+    if (!phone) return fieldErr('aPhone', 'authMsg', 'Please enter your phone number.');
+    if (!region) return fieldErr('aRegion', 'authMsg', 'Please enter your home region.');
+    if (!email) return fieldErr('aEmail', 'authMsg', 'Please enter your email address.');
+    if (password.length < 10) return fieldErr('aPass', 'authMsg', 'Use a password with at least 10 characters.');
+
+    const r = await busy($('authBtn'), () => sb.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name,
+          gender,
+          phone,
+          region
+        }
+      }
+    }));
+    if (fail(r, 'authMsg')) return;
+    if (!r.data.session) { toggleMode(); say('authMsg', 'success', 'Check your email to confirm your account, then sign in.'); }
+  } else {
+    if (!email) return fieldErr('aEmail', 'authMsg', 'Please enter your email address.');
+    if (!password) return fieldErr('aPass', 'authMsg', 'Please enter your password.');
+    if (fail(await busy($('authBtn'), () => sb.auth.signInWithPassword({ email, password })), 'authMsg')) return;
+  }
+}
+async function forgot() {
+  say('authMsg'); clearErrs($('authForm'));
+  const email = $('aEmail').value.trim();
+  if (!sb || !email) return fieldErr('aEmail', 'authMsg', 'Enter your email address first.');
+  if (!fail(await sb.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] }), 'authMsg')) say('authMsg', 'success', 'If that email has an account, a reset link is on its way.');
+}
+async function logout() { await sb.auth.signOut(); }
+function showDash(on) {
+  $('login').classList.toggle('hidden', on); $('dash').classList.toggle('hidden', !on);
+  $('badge').classList.toggle('hidden', !on); $('badge').classList.toggle('flex', on); $('nav').classList.toggle('hidden', !on);
+  if (!on) { closeModal(); $('aPass').value = ''; S = { uid: null, me: null, users: [], events: [], av: [], asg: [] }; }
+}
+async function enter(session) {
+  if (!session) return showDash(false);
+  S.uid = session.user.id; await load();
+  if (!S.me || !S.me.active) {
+    const why = S.me ? 'Your account is inactive. Contact an OFA admin.' : 'We could not load your account. Check your connection and try again.';
+    await sb.auth.signOut(); say('authMsg', 'error', why); return;
+  }
+  showDash(true); render();
+}
+if (sb) {
+  sb.auth.onAuthStateChange((ev, session) => {
+    if (ev === 'PASSWORD_RECOVERY') { tab = 'profile'; recovering = true; }
+    if (ev === 'SIGNED_OUT') showDash(false); else if (ev === 'SIGNED_IN' || ev === 'INITIAL_SESSION' || ev === 'PASSWORD_RECOVERY') setTimeout(() => enter(session), 0);
+  });
+} else { $('setupWarn').classList.remove('hidden'); $('setupWarn').innerHTML = note('warning', 'Not set up yet.', 'Add your Supabase URL and anon key to <span class="font-mono">CFG</span> in this file.', '!bg-surface shadow-card'); }
+
+/* ===== Data ===== */
+async function load() {
+  const [p, e, a, g] = await Promise.all([
+    sb.from('profiles').select('*').order('name'), sb.from('events').select('*').order('created_at'),
+    sb.from('availability').select('*'), sb.from('assignments').select('*')]);
+  const bad = [p, e, a, g].find(r => r.error);
+  if (bad) { setCloud(false); console.error(bad.error); return; }
+  S.users = p.data; S.events = e.data; S.av = a.data; S.asg = g.data;
+  S.me = S.users.find(u => u.id === S.uid); setCloud(true);
+}
+async function refresh() { await load(); render(); }
+function go(t) { tab = t; refresh(); }
+const avOf = (uid, evId, day) => S.av.find(r => r.user_id === uid && r.event_id === evId && r.day === day)?.status;
+
+/* Mirror a saved availability/accommodation row in local state (status null = row deleted). */
+function setAvLocal(uid, evId, day, status) {
+  S.av = S.av.filter(r => !(r.user_id === uid && r.event_id === evId && r.day === day));
+  if (status) S.av.push({ user_id: uid, event_id: evId, day, status });
+}
+
+/* Helper to compute the clean night before start date (-1 day) */
+function getAccomDays(ev) {
+  if (!ev || !ev.date_range) return ['Night before', ...(ev?.days || [])];
+
+  const rawStart = ev.date_range.split('-')[0].trim();
+  let nightBeforeLabel = 'Night before (' + rawStart + ')';
+
+  try {
+    // Year: from the start date, else from anywhere in the range ("Mar 1-2, 2028"),
+    // else the first occurrence on or after the day the event was created.
+    const YEAR = /\b(?:19|20)\d{2}\b/;
+    const rangeYear = (ev.date_range.match(YEAR) || [])[0];
+    let parsedDate;
+    if (YEAR.test(rawStart)) parsedDate = new Date(rawStart);
+    else if (rangeYear) parsedDate = new Date(rawStart + ' ' + rangeYear);
+    else {
+      const base = ev.created_at ? new Date(ev.created_at) : new Date();
+      parsedDate = new Date(rawStart + ' ' + base.getFullYear());
+      base.setHours(0, 0, 0, 0);
+      if (!isNaN(parsedDate) && parsedDate < base) parsedDate.setFullYear(parsedDate.getFullYear() + 1);
+    }
+    if (!isNaN(parsedDate)) {
+      parsedDate.setDate(parsedDate.getDate() - 1);
+      const options = { month: 'short', day: 'numeric' };
+      nightBeforeLabel = 'Night before (' + parsedDate.toLocaleDateString('en-US', options) + ')';
+    }
+  } catch (e) {}
+
+  return [nightBeforeLabel, ...(ev.days || [])];
+}
+
+const accomOf = (uid, evId, day) => {
+  return S.av.find(r => r.user_id === uid && r.event_id === evId && r.day === 'ACCOM:' + day)?.status === 'yes';
+};
+
+function status(ev, uid) {
+  const v = ev.days.map(d => avOf(uid, ev.id, d)), y = v.filter(x => x === 'yes').length, n = v.filter(x => x === 'no').length, a = v.filter(Boolean).length;
+  return !v.length ? 'unanswered' : y === v.length ? 'available' : n === v.length ? 'unavailable' : a ? 'partial' : 'unanswered';
+}
+
+/* ===== Shell ===== */
+/* [key, (unused), long name, roles, tab label] */
+const TABS = [
+  ['availability', '', 'My availability', ['referee', 'assignor', 'admin'], 'Availability'],
+  ['profile', '', 'Profile & ratings', ['referee', 'assignor', 'admin'], 'Profile'],
+  ['directory', '', 'Referee directory', ['referee', 'assignor', 'admin'], 'Directory'],
+  ['assignor', '', 'Assignor desk', ['assignor', 'admin'], 'Assignor desk'],
+  ['admin', '', 'Admin', ['admin'], 'Admin']
+];
+
+function render() { withFocus(renderNow); }
+function renderNow() {
+  const u = S.me; if (!u) return;
+  if (!TABS.find(t => t[0] === tab)[3].includes(u.role)) tab = 'availability';
+  $('hName').textContent = u.name;
+  $('tabs').innerHTML = TABS.filter(t => t[3].includes(u.role)).map(t => {
+    const on = tab === t[0];
+    return `<button type="button" data-tab="${t[0]}" data-key="tab:${t[0]}" onclick="go(this.dataset.tab)" ${on ? 'aria-current="page"' : ''}
+      class="inline-flex items-center h-12 md:h-16 border-b-2 text-sm whitespace-nowrap ${on ? 'border-ink text-ink font-medium' : 'border-transparent text-ink-2 hover:text-ink'}">${t[4]}</button>`;
+  }).join('');
+  ['availability', 'profile', 'directory', 'assignor', 'admin'].forEach(t => $('v-' + t).classList.toggle('hidden', t !== tab));
+  ({ availability: rAvail, profile: rProfile, directory: rDirectory, assignor: rAssignor, admin: rAdmin })[tab]();
+}
+
+/* ===== Availability (per day) ===== */
+/* Segmented day control. [visible label, tooltip, extra words for screen readers] */
+const DAYBTN = { yes: ['Full', 'Full day', ' day'], am: ['AM', 'Morning only', ' (morning only)'], pm: ['PM', 'Afternoon only', ' (afternoon only)'], no: ['Off', 'Unavailable', ' (unavailable)'] };
+const dayBtns = (evId, i, v, disabled) => Object.entries(DAYBTN).map(([k, [label, tip, sr]]) => `<button type="button" ${disabled ? 'disabled' : ''} data-ev="${esc(evId)}" data-i="${i}" data-k="${k}" data-key="day:${esc(evId)}:${i}:${k}" onclick="setDay(this.dataset.ev, +this.dataset.i, this.dataset.k)" aria-pressed="${v === k}" title="${tip}"
+  class="h-[40px] sm:h-8 sm:min-w-[56px] px-3 rounded-full text-sm transition-colors ${v === k ? 'bg-ink text-surface font-medium' : 'text-ink-2 enabled:hover:text-ink enabled:hover:bg-surface'} disabled:cursor-not-allowed">${label}<span class="sr-only">${sr}</span></button>`).join('');
+
+function rAvail() {
+  const u = S.me;
+  const completelyUnrated = isCompletelyUnrated(u);
+  const isInactive = !u.active;
+
+  /* Reachable: enter() only checks `active` at sign-in, but every later refresh() re-reads the profile,
+     so an account deactivated mid-session lands here on the next click. */
+  let globalBlockBanner = '';
+  if (isInactive) {
+    globalBlockBanner = note('danger', 'Your account is inactive.', 'You can’t submit availability until an admin activates your account.', '!bg-surface shadow-card mb-8');
+  } else if (completelyUnrated) {
+    globalBlockBanner = note('warning', 'You don’t have a rating yet.', 'Referees who are unrated in every weapon can’t submit availability until an admin assigns a rating.', '!bg-surface shadow-card mb-8');
+  }
+
+  $('v-availability').innerHTML = `${viewHead('Your availability', 'Tell assignors which days you can referee. Choose Full, AM, PM or Off for each day; choose it again to clear it.')}
+   ${globalBlockBanner}
+   <div class="space-y-6">${S.events.length ? S.events.map(evCard).join('') : emptyState('There are no tournaments yet. They’ll appear here once an admin adds them.')}</div>`;
+}
+
+function evCard(ev) {
+  const u = S.me, n = S.events.indexOf(ev);
+  const assigned = S.asg.some(a => a.event_id === ev.id && a.user_id === u.id);
+  const eventBlocked = isCompletelyUnrated(u) || !u.active || assigned;
+  const accomDays = getAccomDays(ev);
+  const isAccomNeeded = accomDays.some(d => accomOf(u.id, ev.id, d));
+
+  return `<article data-ev-card="${esc(ev.id)}" aria-labelledby="evt-${n}" class="bg-surface rounded-card shadow-card p-6 sm:p-8">
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-6">
+     <div class="min-w-0">
+      <h2 id="evt-${n}" class="text-lg font-semibold text-ink">${esc(ev.name)}</h2>
+      <p class="mt-1 text-sm text-ink-2">${esc(ev.date_range)}<span aria-hidden="true"> · </span><span class="sr-only">, </span>${esc(ev.location)}</p>
+     </div>
+     <div class="sm:pt-1">${assigned ? `<span class="inline-flex items-center gap-2 text-sm text-ink-2 whitespace-nowrap">${dot('success')}Assigned</span>` : statusLabel(status(ev, u.id))}</div>
+    </div>
+
+    ${assigned ? `<div class="mt-6 flex gap-3 rounded-inner bg-page p-4 text-sm"><span class="mt-[2px] text-ink-2">${ICON.lock}</span>
+      <p class="text-ink-2 max-w-prose"><span class="font-medium text-ink">You’re assigned to this tournament.</span> Availability and accommodation are now locked.</p></div>` : ''}
+
+    <div class="mt-8">
+     <div class="flex items-baseline justify-between gap-4">
+      <h3 class="text-sm font-medium text-ink">Days</h3>
+      ${eventBlocked ? '' : `<div class="flex gap-4">
+       <button type="button" data-ev="${esc(ev.id)}" data-key="all:${esc(ev.id)}:yes" onclick="setAll(this.dataset.ev, 'yes')" class="${C.link}">All full</button>
+       <button type="button" data-ev="${esc(ev.id)}" data-key="all:${esc(ev.id)}:no" onclick="setAll(this.dataset.ev, 'no')" class="${C.link}">All off</button></div>`}
+     </div>
+     <ul class="mt-2 divide-y divide-hairline">${ev.days.map((day, i) => `<li class="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+       <span id="dl-${n}-${i}" class="text-base text-ink">${esc(day)}</span>
+       <div role="group" aria-labelledby="dl-${n}-${i}" class="grid grid-cols-4 gap-1 sm:inline-flex rounded-full bg-page p-1 ${eventBlocked ? 'opacity-50' : ''}">${dayBtns(ev.id, i, avOf(u.id, ev.id, day), eventBlocked)}</div></li>`).join('')}</ul>
+    </div>
+
+    <div class="mt-4 pt-6 border-t border-hairline">
+     <div class="flex items-start justify-between gap-6">
+      <div>
+       <label for="acc-${n}" class="text-base font-medium text-ink ${eventBlocked ? '' : 'cursor-pointer'}">Accommodation</label>
+       <p id="acc-${n}-hint" class="mt-1 text-sm text-ink-2">Turn on if you need a hotel room, then choose the nights.</p>
+      </div>
+      <span class="relative inline-flex shrink-0 mt-1 ${eventBlocked ? 'opacity-50' : ''}">
+       <input type="checkbox" role="switch" id="acc-${n}" aria-describedby="acc-${n}-hint" aria-controls="accom-box-${n}" ${eventBlocked ? 'disabled' : ''} ${isAccomNeeded ? 'checked' : ''} data-ev="${esc(ev.id)}" data-key="accneed:${esc(ev.id)}" onchange="toggleAccomNeeded(this.dataset.ev, this.checked)"
+        class="peer absolute inset-0 z-10 m-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed">
+       <span class="block h-6 w-[44px] rounded-full bg-ink-3 transition-colors peer-checked:bg-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink" aria-hidden="true"></span>
+       <span class="absolute left-[2px] top-[2px] h-[20px] w-[20px] rounded-full bg-surface shadow-card transition-transform peer-checked:translate-x-[20px]" aria-hidden="true"></span>
+      </span>
+     </div>
+     <fieldset id="accom-box-${n}" class="${isAccomNeeded ? '' : 'hidden'} mt-4">
+      <legend class="mb-3 text-sm text-ink-2">Nights</legend>
+      <div class="flex flex-wrap gap-2">${accomDays.map((accDay, idx) => {
+        const on = accomOf(u.id, ev.id, accDay);
+        return `<span class="relative">
+         <input type="checkbox" id="acc-${n}-${idx}" ${eventBlocked ? 'disabled' : ''} ${on ? 'checked' : ''} data-ev="${esc(ev.id)}" data-day="${esc(accDay)}" data-key="acc:${esc(ev.id)}:${idx}" onchange="setAccomDay(this.dataset.ev, this.dataset.day, this.checked)" class="peer sr-only">
+         <label for="acc-${n}-${idx}" class="inline-flex items-center gap-2 h-[40px] px-4 rounded-full text-sm select-none transition-colors bg-page text-ink peer-checked:bg-ink peer-checked:text-surface peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink ${eventBlocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-hairline peer-checked:hover:bg-ink'}">${on ? ICON.check : ''}${esc(accDay)}</label></span>`;
+      }).join('')}</div>
+     </fieldset>
+    </div>
+   </article>`;
+}
+/* Re-draw one tournament card from local state instead of reloading everything. */
+function rerenderEvent(evId) {
+  const ev = S.events.find(e => e.id === evId), el = document.querySelector(`[data-ev-card="${CSS.escape(evId)}"]`);
+  if (!ev || !el) return;
+  withFocus(() => { el.outerHTML = evCard(ev); });
+}
+function blockedReason(evId) {
+  if (!S.me.active) return 'Your account is inactive, so availability is locked.';
+  if (isCompletelyUnrated(S.me)) return 'You need a rating from an admin before you can submit availability.';
+  if (S.asg.some(a => a.event_id === evId && a.user_id === S.uid)) return 'You cannot modify availability for a tournament you are assigned to.';
+  return '';
+}
+
+async function setDay(evId, i, val) {
+  const why = blockedReason(evId); if (why) return toast(why, 'error');
+  const day = S.events.find(e => e.id === evId).days[i], uid = S.uid;
+  const clear = avOf(uid, evId, day) === val;
+  const r = clear
+    ? await sb.from('availability').delete().match({ user_id: uid, event_id: evId, day })
+    : await sb.from('availability').upsert({ user_id: uid, event_id: evId, day, status: val }, { onConflict: 'user_id,event_id,day' });
+  if (fail(r)) return;
+  setAvLocal(uid, evId, day, clear ? null : val);
+  rerenderEvent(evId);
+}
+async function setAll(evId, val) {
+  const why = blockedReason(evId); if (why) return toast(why, 'error');
+  const ev = S.events.find(e => e.id === evId);
+  const r = await sb.from('availability').upsert(ev.days.map(day => ({ user_id: S.uid, event_id: evId, day, status: val })), { onConflict: 'user_id,event_id,day' });
+  if (fail(r)) return;
+  ev.days.forEach(day => setAvLocal(S.uid, evId, day, val));
+  rerenderEvent(evId);
+}
+
+async function toggleAccomNeeded(evId, needed) {
+  if (blockedReason(evId)) return rerenderEvent(evId);
+  const ev = S.events.find(e => e.id === evId);
+  const accomDays = getAccomDays(ev);
+  const uid = S.uid;
+  const r = needed
+    ? await sb.from('availability').upsert(accomDays.map(accDay => ({ user_id: uid, event_id: evId, day: 'ACCOM:' + accDay, status: 'yes' })), { onConflict: 'user_id,event_id,day' })
+    : await sb.from('availability').delete().match({ user_id: uid, event_id: evId }).like('day', 'ACCOM:%');
+  if (!fail(r)) {
+    if (needed) accomDays.forEach(d => setAvLocal(uid, evId, 'ACCOM:' + d, 'yes'));
+    else S.av = S.av.filter(x => !(x.user_id === uid && x.event_id === evId && String(x.day).startsWith('ACCOM:')));
+  }
+  rerenderEvent(evId); // re-draw either way so the switch matches what is actually saved
+}
+
+async function setAccomDay(evId, accDay, checked) {
+  if (blockedReason(evId)) return rerenderEvent(evId);
+  const uid = S.uid;
+  const dayKey = 'ACCOM:' + accDay;
+  const r = checked
+    ? await sb.from('availability').upsert({ user_id: uid, event_id: evId, day: dayKey, status: 'yes' }, { onConflict: 'user_id,event_id,day' })
+    : await sb.from('availability').delete().match({ user_id: uid, event_id: evId, day: dayKey });
+  if (!fail(r)) setAvLocal(uid, evId, dayKey, checked ? 'yes' : null);
+  rerenderEvent(evId);
+}
+
+/* ===== Profile ===== */
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+const ratingLine = u => `Foil ${esc(u.foil)} · Épée ${esc(u.epee)} · Sabre ${esc(u.sabre)} · Para ${esc(u.para)}`;
+
+function rProfile() {
+  const u = S.me;
+  /* Settings-page section: title and short description on the left, fields on the right. */
+  const section = (title, desc, body) => `<section class="py-8 first:pt-0 last:pb-0 md:grid md:grid-cols-3 md:gap-8">
+    <div class="mb-6 md:mb-0"><h2 class="text-base font-semibold text-ink">${title}</h2><p class="mt-1 text-sm text-ink-2">${desc}</p></div>
+    <div class="md:col-span-2 space-y-6">${body}</div></section>`;
+
+  const prefs = Array.isArray(u.roommate_prefs) ? u.roommate_prefs : [];
+  const names = [...new Set(S.users.filter(x => x.id !== u.id && x.active && x.name).map(x => x.name))].sort((a, b) => a.localeCompare(b));
+  const roommateSelect = num => {
+    const saved = prefs[num - 1] || '';
+    const match = names.find(n => sameName(n, saved));
+    const legacy = saved && !match ? `<option value="${esc(saved)}" selected>${esc(saved)} (not found in directory)</option>` : '';
+    return `<div class="flex items-center gap-4">
+      <label for="pRoommate${num}" class="w-[72px] shrink-0 text-sm text-ink-2">Choice ${num}${num === 1 ? '<span class="sr-only"> (most preferred)</span>' : ''}</label>
+      <select id="pRoommate${num}" onchange="syncRoommates()" class="${C.input}">
+       <option value="">No preference</option>${legacy}
+       ${names.map(n => `<option value="${esc(n)}" ${n === match ? 'selected' : ''}>${esc(n)}</option>`).join('')}
+      </select></div>`;
+  };
+  const rate = (l, v) => `<div class="flex items-center justify-between py-3"><dt class="text-sm text-ink-2">${l}</dt><dd class="text-sm font-medium text-ink">${esc(v)}</dd></div>`;
+
+  $('v-profile').innerHTML = `${viewHead('Profile', 'Your details, preferences and ratings.')}
+  ${card(`<form onsubmit="saveProfile(event)" novalidate>
+   <div class="divide-y divide-hairline">
+   ${section('Personal details', 'How assignors and other officials know and reach you.', `<div class="grid sm:grid-cols-2 gap-6">
+     ${field({ id: 'pName', label: 'Full name', value: u.name, attrs: 'autocomplete="name"' })}
+     ${field({ id: 'pEmail', label: 'Email address', value: u.email, readonly: true, hint: 'Your sign-in email can’t be changed here.' })}
+     ${field({ id: 'pPhone', label: 'Phone number', value: u.phone, type: 'tel', attrs: 'autocomplete="tel"' })}
+     ${field({ id: 'pRegion', label: 'Home region', value: u.region })}
+     ${selectField({ id: 'pGender', label: 'Gender', options: genderOpts(u.gender), attrs: 'aria-required="true"' })}</div>`)}
+   ${section('Dietary needs', 'Shown to assignors on the assignor desk.',
+     field({ id: 'pMeal', label: 'Meal restrictions', value: u.meal_restrictions || '', optional: true, hint: 'For example vegetarian, gluten-free, halal or allergies.' }))}
+   ${section('Roommate preferences', 'Choose up to five officials, most preferred first. Names come from the referee directory, so they always match.',
+     `<div class="space-y-3">${[1, 2, 3, 4, 5].map(roommateSelect).join('')}</div>`)}
+   ${section('Ratings', 'Set by OFA admins.', `<dl class="-my-3 divide-y divide-hairline">${rate('Foil', u.foil)}${rate('Épée', u.epee)}${rate('Sabre', u.sabre)}${rate('Para', u.para)}</dl>`)}
+   ${section('Password', 'Leave blank to keep your current password.', `${recovering ? note('none', '', '<span class="text-ink">Enter a new password, then select Save changes.</span>') : ''}
+     ${field({ id: 'pNew', label: 'New password', type: 'password', optional: true, hint: 'At least 10 characters.', attrs: 'autocomplete="new-password"' })}`)}
+   </div>
+   <div class="mt-8 pt-8 border-t border-hairline flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-4">
+    <div id="profileMsg" data-compact class="hidden" aria-live="polite"></div>
+    <button id="profileSave" class="${C.primary}">Save changes</button></div></form>`)}`;
+  syncRoommates();
+  if (recovering) $('pNew').focus();
+}
+/* Grey out names already picked in another roommate slot. */
+function syncRoommates() {
+  const sels = [1, 2, 3, 4, 5].map(n => $(`pRoommate${n}`)).filter(Boolean);
+  sels.forEach(s => [...s.options].forEach(o => { o.disabled = !!o.value && sels.some(x => x !== s && sameName(x.value, o.value)); }));
+}
+
+async function saveProfile(e) {
+  e.preventDefault();
+  say('profileMsg'); clearErrs(e.target);
+  const pw = $('pNew').value;
+  const gender = $('pGender').value;
+  if (!gender) return fieldErr('pGender', 'profileMsg', 'Gender selection is required.');
+  if (pw && pw.length < 10) return fieldErr('pNew', 'profileMsg', 'Use a password with at least 10 characters.');
+
+  const roommate_prefs = [1, 2, 3, 4, 5].map(num => $(`pRoommate${num}`).value.trim()).filter(Boolean);
+  const row = {
+    name: $('pName').value.trim(),
+    phone: $('pPhone').value.trim(),
+    region: $('pRegion').value.trim(),
+    gender: gender,
+    meal_restrictions: $('pMeal').value.trim(),
+    roommate_prefs: roommate_prefs
+  };
+
+  await busy($('profileSave'), async () => {
+    if (fail(await sb.from('profiles').update(row).eq('id', S.uid), 'profileMsg')) return;
+    Object.assign(S.me, row);
+    if (pw && fail(await sb.auth.updateUser({ password: pw }), 'profileMsg')) return;
+    $('pNew').value = '';
+    if (recovering && pw) { recovering = false; rProfile(); }
+    $('hName').textContent = S.me.name;
+    say('profileMsg', 'success', 'Profile saved');
+  });
+}
+
+/* ===== Referee Directory Search Tab ===== */
+function rDirectory() {
+  $('v-directory').innerHTML = `${viewHead('Directory', 'Active referees, their regions and ratings.')}
+   <div class="max-w-form mb-6">
+    <label for="dirSearchInput" class="${C.label}">Search</label>
+    <input type="search" id="dirSearchInput" value="${esc(dirQuery)}" oninput="updateDirQuery(this.value)" autocomplete="off" placeholder="Name or region" class="${C.input}">
+   </div>
+   <p id="dirCount" class="mb-4 text-sm text-ink-3" aria-live="polite"></p>
+   <div id="dirResults"></div>`;
+  drawDirectory();
+}
+function drawDirectory() {
+  const query = (dirQuery || '').trim().toLowerCase();
+
+  const filteredUsers = S.users.filter(u => {
+    if (!u.active) return false;
+    if (!query) return true;
+    const fullName = (u.name || '').toLowerCase();
+    const region = (u.region || '').toLowerCase();
+    return fullName.includes(query) || region.includes(query);
+  });
+
+  $('dirResults').innerHTML = filteredUsers.length
+    ? `<ul class="space-y-3 md:space-y-0 md:bg-surface md:rounded-card md:shadow-card md:divide-y md:divide-hairline md:px-6">${filteredUsers.map(r => `
+      <li class="bg-surface rounded-card shadow-card p-6 md:bg-transparent md:rounded-none md:shadow-none md:px-0 md:py-4 md:flex md:items-baseline md:justify-between md:gap-6">
+       <div class="min-w-0"><p class="text-base font-medium text-ink">${esc(r.name)}</p>
+        <p class="mt-1 text-sm text-ink-2">${[r.region, r.gender].filter(Boolean).map(esc).join(' · ') || '—'}</p></div>
+       <p class="mt-3 md:mt-0 text-sm text-ink-2 md:text-right">${ratingLine(r)}</p>
+      </li>`).join('')}</ul>`
+    : emptyState(`No active referees match “${esc(dirQuery.trim())}”.`, `<button type="button" onclick="updateDirQuery(''); $('dirSearchInput').value=''; $('dirSearchInput').focus()" class="${C.link}">Clear search</button>`);
+  $('dirCount').textContent = `${filteredUsers.length} ${filteredUsers.length === 1 ? 'referee' : 'referees'}`;
+}
+
+function updateDirQuery(val) {
+  dirQuery = val;
+  drawDirectory(); // only the results are redrawn, so the search box keeps focus and cursor position
+}
+
+/* ===== Assignor desk ===== */
+/* Per-day letters. [letter, meaning] */
+const DAYTOK = { yes: ['F', 'Full day'], am: ['AM', 'Morning only'], pm: ['PM', 'Afternoon only'], no: ['–', 'Unavailable'], none: ['', 'No answer'] };
+
+function rAssignor() {
+  if (!S.events.find(e => e.id === aEv)) aEv = S.events[0]?.id;
+  const ev = S.events.find(e => e.id === aEv);
+  const head = viewHead('Assignor desk', 'See who’s available for each tournament and build the roster.',
+    ev ? `<button type="button" data-key="rooming" onclick="openRoomingModal()" class="${C.primary} shrink-0">Generate rooming list</button>` : '');
+  if (!ev) {
+    $('v-assignor').innerHTML = head + emptyState('There are no tournaments to staff yet.',
+      S.me?.role === 'admin' ? `<button type="button" onclick="go('admin')" class="${C.secondary}">Add a tournament</button>` : '');
+    return;
+  }
+  const tok = (v, d) => {
+    const [l, t] = DAYTOK[v || 'none'];
+    return `<li title="${esc(d)}: ${t}" class="inline-flex items-center justify-center min-w-[32px] h-6 px-2 rounded-full text-xs ${v === 'yes' || v === 'am' || v === 'pm' ? 'bg-page text-ink font-medium' : 'text-ink-3'}">${l ? `<span aria-hidden="true">${l}</span>` : dot('none')}<span class="sr-only">${esc(d)}: ${t}</span></li>`;
+  };
+
+  let activeUsers = S.users.filter(r => r.active);
+
+  // Sorting Logic
+  const statusOrder = { available: 1, partial: 2, unanswered: 3, unavailable: 4 };
+  activeUsers.sort((a, b) => {
+    if (aSort === 'availability') {
+      const sA = status(ev, a.id), sB = status(ev, b.id);
+      if (statusOrder[sA] !== statusOrder[sB]) return statusOrder[sA] - statusOrder[sB];
+    } else if (aSort === 'assigned') {
+      const onA = S.asg.some(x => x.event_id === ev.id && x.user_id === a.id) ? 1 : 0;
+      const onB = S.asg.some(x => x.event_id === ev.id && x.user_id === b.id) ? 1 : 0;
+      if (onA !== onB) return onB - onA; // Assigned first
+    } else if (aSort === 'unassigned') {
+      const onA = S.asg.some(x => x.event_id === ev.id && x.user_id === a.id) ? 1 : 0;
+      const onB = S.asg.some(x => x.event_id === ev.id && x.user_id === b.id) ? 1 : 0;
+      if (onA !== onB) return onA - onB; // Unassigned first
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  const accomDays = getAccomDays(ev);
+  const td = `${TB.td} ${TB.lbl}`;
+
+  const rows = activeUsers.map(r => {
+    const s = status(ev, r.id), on = S.asg.some(a => a.event_id === ev.id && a.user_id === r.id);
+    const rcOrUnratedOnly = isRcOrUnratedOnly(r);
+    const isAdmin = S.me?.role === 'admin';
+    const isAssignDisabled = s === 'unavailable' || (rcOrUnratedOnly && !isAdmin);
+
+    const requestedNights = accomDays.filter(d => accomOf(r.id, ev.id, d));
+    const needs = [
+      requestedNights.length ? `<p><span class="text-ink">Room</span> <span class="text-ink-2">${esc(requestedNights.join(', '))}</span></p>` : '',
+      r.meal_restrictions ? `<p><span class="text-ink">Meals</span> <span class="text-ink-2">${esc(r.meal_restrictions)}</span></p>` : '',
+    ].join('') || '<span class="text-ink-3">—</span>';
+    const nameSr = `<span class="sr-only"> ${esc(r.name)}</span>`;
+    const dataAttrs = `data-ev="${esc(ev.id)}" data-user="${esc(r.id)}" data-on="${on}" data-key="asg:${esc(r.id)}" onclick="toggleAssign(this.dataset.ev, this.dataset.user, this.dataset.on === 'true')"`;
+    const action = on
+      ? `<div class="flex items-center gap-4 md:justify-end"><span class="inline-flex items-center gap-2 h-8 px-3 rounded-full bg-ink text-surface text-sm font-medium whitespace-nowrap">${ICON.check}Assigned</span>
+         ${isAssignDisabled ? '' : `<button type="button" ${dataAttrs} class="${C.link}">Unassign${nameSr}</button>`}</div>`
+      : `<button type="button" ${isAssignDisabled ? 'disabled' : ''} ${dataAttrs} ${rcOrUnratedOnly && !isAdmin ? 'aria-describedby="rcRule"' : ''} class="${C.secondary} !h-8 max-md:!h-[40px] max-md:w-full">Assign${nameSr}</button>`;
+
+    return `<tr class="${TB.tr} max-md:grid-cols-2">
+     <td class="${TB.td} max-md:order-1"><p class="font-medium text-ink">${esc(r.name)}</p><p class="text-ink-2">${[r.region, r.gender].filter(Boolean).map(esc).join(' · ') || '—'}</p></td>
+     <td data-label="Ratings" class="${td} max-md:order-3 max-md:col-span-2 text-ink">Foil ${esc(r.foil)} · Épée ${esc(r.epee)} · Sabre ${esc(r.sabre)}
+      ${rcOrUnratedOnly ? `<p class="mt-1 inline-flex items-center gap-2 text-ink-2">${dot('warning')}Admin only</p>` : ''}</td>
+     <td data-label="Days" class="${td} max-md:order-4 max-md:col-span-2"><ul class="flex flex-wrap md:flex-nowrap gap-1">${ev.days.map(d => tok(avOf(r.id, ev.id, d), d)).join('')}</ul></td>
+     <td data-label="Room and meals" class="${td} max-md:order-5 max-md:col-span-2 md:max-w-[220px] space-y-1">${needs}</td>
+     <td class="${TB.td} max-md:order-2 max-md:justify-self-end">${statusLabel(s)}</td>
+     <td class="${TB.td} max-md:order-6 max-md:col-span-2 md:text-right">${action}</td></tr>`;
+  }).join('');
+
+  const assignedCount = S.asg.filter(a => a.event_id === ev.id).length;
+
+  $('v-assignor').innerHTML = `${head}
+  <div id="rcRule" class="mb-8">${note('warning', '', 'Referees holding only Rc and Unrated licenses may only be hired by the OFA Candidate coordinator or after consultation with the OFA CAN COORD. A minimum of one full R license is required to be hired at sanctioned OFA events by Assignors/Organizers.', '!bg-surface shadow-card')}</div>
+  <div id="asgMsg" data-surface class="hidden mb-6" aria-live="polite"></div>
+  <div class="grid gap-4 sm:grid-cols-2 md:flex md:gap-6 mb-6">
+   <div class="md:w-[320px]">
+    <label for="aEvSel" class="${C.label}">Tournament</label>
+    <select id="aEvSel" data-key="aEv" onchange="aEv=this.value;withFocus(rAssignor)" class="${C.input}">${S.events.map(e => `<option value="${esc(e.id)}" ${e.id === aEv ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
+   </div>
+   <div class="md:w-[280px]">
+    <label for="aSortSel" class="${C.label}">Sort by</label>
+    <select id="aSortSel" data-key="aSort" onchange="aSort=this.value;withFocus(rAssignor)" class="${C.input}">
+     <option value="name" ${aSort === 'name' ? 'selected' : ''}>Name (A-Z)</option>
+     <option value="availability" ${aSort === 'availability' ? 'selected' : ''}>Availability (Available first)</option>
+     <option value="unassigned" ${aSort === 'unassigned' ? 'selected' : ''}>Assignment (Unassigned first)</option>
+     <option value="assigned" ${aSort === 'assigned' ? 'selected' : ''}>Assignment (Assigned first)</option>
+    </select>
+   </div>
+  </div>
+  <p class="mb-4 text-sm text-ink-2 max-w-prose">Days, in order: ${ev.days.map(esc).join(', ')}. <span class="text-ink-3">F full day · AM or PM half day · – unavailable · <span class="inline-flex align-middle">${dot('none')}</span> no answer</span></p>
+  <p class="mb-4 text-sm text-ink-2" aria-live="polite"><span class="font-medium text-ink">${assignedCount}</span> assigned</p>
+  <div class="${TB.wrap}"><table class="${TB.table}"><caption class="sr-only">Referees for ${esc(ev.name)}</caption>
+   <thead class="${TB.thead}"><tr>${['Referee', 'Ratings', 'Days', 'Room and meals', 'Status', '<span class="sr-only">Assignment</span>'].map(h => `<th scope="col" class="${TB.th}">${h}</th>`).join('')}</tr></thead>
+   <tbody class="${TB.tbody}">${rows}</tbody></table></div>
+  ${activeUsers.length ? '' : emptyState('No active referees yet.')}`;
+}
+
+async function toggleAssign(evId, userId, on) {
+  const targetUser = S.users.find(u => u.id === userId);
+  if (targetUser && isRcOrUnratedOnly(targetUser) && S.me?.role !== 'admin') {
+    return toast('Referees with only Unrated or Rc ratings can only be assigned by an Admin.', 'error');
+  }
+  const r = on ? await sb.from('assignments').delete().match({ event_id: evId, user_id: userId }) : await sb.from('assignments').insert({ event_id: evId, user_id: userId });
+  if (fail(r)) return;
+  if (on) S.asg = S.asg.filter(a => !(a.event_id === evId && a.user_id === userId));
+  else S.asg.push({ event_id: evId, user_id: userId });
+  withFocus(rAssignor);
+}
+
+/* ===== Rooming List Generator Modal ===== */
+function openRoomingModal() {
+  say('asgMsg');
+  const ev = S.events.find(e => e.id === aEv);
+  if (!ev) return say('asgMsg', 'info', 'Select a tournament first.');
+
+  const accomDays = getAccomDays(ev);
+
+  const assignedUsers = S.users.filter(u => {
+    const isAssigned = S.asg.some(a => a.event_id === ev.id && a.user_id === u.id);
+    const needsAccom = accomDays.some(d => accomOf(u.id, ev.id, d));
+    return isAssigned && needsAccom;
+  });
+
+  if (assignedUsers.length === 0) {
+    return say('asgMsg', 'info', 'No assigned referees require accommodation for this tournament.');
+  }
+
+  const userNights = (userId) => accomDays.filter(d => accomOf(userId, ev.id, d));
+
+  const getMutualScore = (userA, userB) => {
+    const prefsA = Array.isArray(userA.roommate_prefs) ? userA.roommate_prefs : [];
+    const prefsB = Array.isArray(userB.roommate_prefs) ? userB.roommate_prefs : [];
+
+    const indexA = prefsA.findIndex(name => name.trim().toLowerCase() === userB.name.trim().toLowerCase());
+    const indexB = prefsB.findIndex(name => name.trim().toLowerCase() === userA.name.trim().toLowerCase());
+
+    const sameGender = userA.gender === userB.gender;
+
+    if (!sameGender) {
+      if (indexA === -1 || indexB === -1) return 0;
+    }
+
+    let score = 0;
+    if (indexA !== -1) score += (6 - (indexA + 1));
+    if (indexB !== -1) score += (6 - (indexB + 1));
+    if (sameGender) score += 2;
+
+    return score;
+  };
+
+  let unassigned = [...assignedUsers];
+  let rooms = [];
+
+  unassigned.sort((a, b) => userNights(b.id).length - userNights(a.id).length);
+
+  while (unassigned.length > 0) {
+    const primary = unassigned.shift();
+    const primaryNights = userNights(primary.id);
+    let bestMatchIdx = -1;
+    let bestScore = -999;
+
+    for (let i = 0; i < unassigned.length; i++) {
+      const candidate = unassigned[i];
+      const candidateNights = userNights(candidate.id);
+
+      const exactNightMatch = primaryNights.length === candidateNights.length &&
+        primaryNights.every(n => candidateNights.includes(n));
+
+      let score = exactNightMatch ? 10 : 0;
+
+      const prefScore = getMutualScore(primary, candidate);
+      if (primary.gender !== candidate.gender && prefScore === 0) {
+        continue;
+      }
+      score += prefScore * 3;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatchIdx = i;
+      }
+    }
+
+    if (bestMatchIdx !== -1) {
+      const match = unassigned.splice(bestMatchIdx, 1)[0];
+      rooms.push({ type: 'Double', occupants: [primary, match] });
+    } else {
+      rooms.push({ type: 'Single', occupants: [primary] });
+    }
+  }
+
+  const roomsHtml = rooms.map((room, idx) => {
+    const occ = room.occupants.map(o => `<li><span class="font-medium text-ink">${esc(o.name)}</span> <span class="text-ink-2">${[o.gender, o.region].filter(Boolean).map(esc).join(' · ')}</span></li>`).join('');
+    const sharedNights = accomDays.filter(d => room.occupants.every(o => accomOf(o.id, ev.id, d)));
+
+    return `<li class="py-4 first:pt-0 sm:grid sm:grid-cols-[96px_1fr] sm:gap-4 text-sm">
+      <p class="font-medium text-ink">Room ${idx + 1}<span class="block font-normal text-ink-3">${room.type}</span></p>
+      <div class="mt-1 sm:mt-0"><ul class="space-y-1">${occ}</ul>
+       <p class="mt-2 text-ink-2">Nights: ${esc(sharedNights.join(', ') || 'Partial/Mixed nights')}</p></div>
+    </li>`;
+  }).join('');
+
+  openModal(`
+   <div class="flex justify-between items-start gap-4 mb-2">
+    <h2 id="modalTitle" class="text-xl font-semibold text-ink">Rooming list</h2>
+    <button type="button" onclick="closeModal()" aria-label="Close" class="no-print ${C.iconBtn} -mt-2 -mr-2">${ICON.x}</button>
+   </div>
+   <p class="text-sm text-ink-2 mb-6">${esc(ev.name)} · ${rooms.length} ${rooms.length === 1 ? 'room' : 'rooms'}. Pairs assigned referees by matching nights and mutual roommate preferences, at most two per room.</p>
+   <ol class="print-scroll divide-y divide-hairline max-h-[60vh] overflow-y-auto">${roomsHtml}</ol>
+   <div class="no-print flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-6 mt-2 border-t border-hairline">
+    <button type="button" onclick="closeModal()" class="${C.secondary} !h-12">Close</button>
+    <button type="button" onclick="window.print()" class="${C.primary}">Print list</button>
+   </div>
+  `);
+}
+
+/* ===== Admin ===== */
+function rAdmin() {
+  const td = `${TB.td} ${TB.lbl}`;
+  const users = S.users.map(r => {
+    const needsReview = (isCompletelyUnrated(r) && (!r.phone || r.phone === '') && (!r.region || r.region === '')) || !r.gender;
+
+    return `<tr class="${TB.tr} max-md:grid-cols-2">
+     <td class="${TB.td} max-md:order-1 max-md:col-span-2"><p class="font-medium text-ink">${esc(r.name)}</p><p class="text-ink-2 [overflow-wrap:anywhere]">${esc(r.email)}</p>
+      ${needsReview ? `<p class="mt-1 inline-flex items-center gap-2 text-ink-2">${dot('warning')}Needs review<span class="sr-only">: profile details, gender, or ratings have not been configured yet</span></p>` : ''}</td>
+     <td data-label="Role" class="${td} max-md:order-3 text-ink capitalize">${esc(r.role)}</td>
+     <td data-label="Region" class="${td} max-md:order-4 text-ink-2">${esc(r.region || '—')}</td>
+     <td data-label="Gender" class="${td} max-md:order-5 text-ink-2">${esc(r.gender || '—')}</td>
+     <td data-label="Status" class="${td} max-md:order-6"><span class="inline-flex items-center gap-2 text-ink-2">${dot(r.active ? 'success' : 'danger')}${r.active ? 'Active' : 'Inactive'}</span></td>
+     <td class="${TB.td} max-md:order-7 max-md:col-span-2 md:text-right"><button type="button" data-user="${esc(r.id)}" data-key="user:${esc(r.id)}" onclick="userModal(this.dataset.user)" class="${C.link}">Edit<span class="sr-only"> ${esc(r.name)}</span></button></td></tr>`;
+  }).join('');
+
+  $('v-admin').innerHTML = `${viewHead('Admin', 'Manage referee accounts and tournaments.')}
+  <div class="space-y-12">
+   <section>
+    ${sectionHead('Referees', 'Referees create their own accounts from the sign-in page. Set their role and ratings here. To delete an account permanently, use Supabase &gt; Authentication &gt; Users.')}
+    ${S.users.length ? `<div class="${TB.wrap}"><table class="${TB.table}"><caption class="sr-only">Referee accounts</caption>
+     <thead class="${TB.thead}"><tr>${['Name', 'Role', 'Region', 'Gender', 'Status', '<span class="sr-only">Edit</span>'].map(h => `<th scope="col" class="${TB.th}">${h}</th>`).join('')}</tr></thead>
+     <tbody class="${TB.tbody}">${users}</tbody></table></div>` : emptyState('No referee accounts yet. They’ll appear here when referees sign up.')}
+   </section>
+   <section>
+    ${sectionHead('Tournaments', 'Referees mark their availability for each tournament listed here.', `<button type="button" id="addEvBtn" data-key="addEv" onclick="evModal()" class="${C.primary} shrink-0">Add tournament</button>`)}
+    ${S.events.length ? card(`<ul class="-my-4 divide-y divide-hairline">${S.events.map(ev => `<li class="py-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+     <div class="min-w-0"><p class="font-medium text-ink">${esc(ev.name)}</p>
+      <p class="text-sm text-ink-2">${esc(ev.date_range)} · ${esc(ev.location)} · ${ev.days.length} ${ev.days.length === 1 ? 'day' : 'days'}</p></div>
+     <div class="flex gap-6 shrink-0">
+      <button type="button" data-ev="${esc(ev.id)}" data-key="evedit:${esc(ev.id)}" onclick="evModal(this.dataset.ev)" class="${C.link}">Edit<span class="sr-only"> ${esc(ev.name)}</span></button>
+      <button type="button" data-ev="${esc(ev.id)}" data-key="evdel:${esc(ev.id)}" onclick="delEv(this.dataset.ev)" class="${C.link}">Delete<span class="sr-only"> ${esc(ev.name)}</span></button>
+     </div></li>`).join('')}</ul>`, '!py-4 sm:!py-4') : emptyState('No tournaments yet. Add one so referees can mark their availability.')}
+   </section>
+  </div>`;
+}
+async function delEv(id) {
+  const ev = S.events.find(x => x.id === id);
+  const ok = await askConfirm({ title: 'Delete tournament?', body: `Delete "${ev.name}" and all availability and assignments for it? This cannot be undone.`, ok: 'Delete tournament', danger: true });
+  if (!ok || fail(await sb.from('events').delete().eq('id', id))) return;
+  S.events = S.events.filter(e => e.id !== id);
+  S.av = S.av.filter(r => r.event_id !== id); S.asg = S.asg.filter(a => a.event_id !== id);
+  rAdmin(); $('addEvBtn')?.focus();
+  toast(`Deleted "${ev.name}".`);
+}
+
+/* ===== Modals ===== */
+const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+let modalReturn = null, confirmResolve = null;
+function openModal(html, size = 'max-w-[560px]') {
+  const m = $('modal');
+  if (m.classList.contains('hidden')) modalReturn = { el: document.activeElement, key: document.activeElement?.dataset?.key };
+  m.innerHTML = `<div role="dialog" aria-modal="true" aria-labelledby="modalTitle" class="bg-surface rounded-card shadow-pop w-full ${size} p-6 sm:p-8 my-4 sm:my-8">${html}</div>`;
+  m.classList.remove('hidden'); m.classList.add('flex');
+  document.querySelectorAll('body > header, body > main, body > footer, body > a').forEach(x => x.inert = true);
+  document.body.classList.add('overflow-hidden');
+  (m.querySelector('[autofocus]') || m.querySelector(FOCUSABLE))?.focus();
+}
+function closeModal() {
+  const m = $('modal'); if (m.classList.contains('hidden')) return;
+  m.classList.add('hidden'); m.classList.remove('flex'); m.innerHTML = '';
+  document.querySelectorAll('body > header, body > main, body > footer, body > a').forEach(x => x.inert = false);
+  document.body.classList.remove('overflow-hidden');
+  const r = modalReturn; modalReturn = null;
+  const back = r?.el && document.contains(r.el) ? r.el : r?.key ? document.querySelector(`[data-key="${CSS.escape(r.key)}"]`) : null;
+  back?.focus();
+  if (confirmResolve) { const res = confirmResolve; confirmResolve = null; res(false); }
+}
+/* Esc closes; Tab and Shift+Tab cycle inside the open dialog. */
+document.addEventListener('keydown', e => {
+  const m = $('modal'); if (m.classList.contains('hidden')) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+  if (e.key !== 'Tab') return;
+  const f = [...m.querySelectorAll(FOCUSABLE)].filter(x => x.getClientRects().length);
+  if (!f.length) return e.preventDefault();
+  const first = f[0], last = f[f.length - 1], cur = document.activeElement;
+  if (e.shiftKey && (cur === first || !m.contains(cur))) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && (cur === last || !m.contains(cur))) { e.preventDefault(); first.focus(); }
+});
+/* Promise-based replacement for confirm(). */
+function askConfirm({ title, body, ok = 'Confirm', danger = false }) {
+  return new Promise(res => {
+    openModal(`<h2 id="modalTitle" class="text-xl font-semibold text-ink">${esc(title)}</h2>
+      <p class="mt-2 text-base text-ink-2">${esc(body)}</p>
+      <div class="mt-8 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+       <button type="button" onclick="closeModal()" autofocus class="${C.secondary} !h-12">Cancel</button>
+       <button type="button" id="confirmOk" class="${danger ? C.danger : C.primary}">${esc(ok)}</button></div>`, 'max-w-form');
+    confirmResolve = res;
+    $('confirmOk').onclick = () => { confirmResolve = null; closeModal(); res(true); };
+  });
+}
+/* Admin form field (always required, as before). */
+const fld = (n, l, v = '', x = '') => field({ id: `f-${n}`, name: n, label: l, value: v, readonly: /readonly/.test(x), attrs: `required ${x.replace('readonly', '')}` });
+const btns = `<div id="modalMsg" class="hidden" aria-live="polite"></div>
+  <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-2"><button type="button" onclick="closeModal()" class="${C.secondary} !h-12">Cancel</button><button id="modalSave" class="${C.primary}">Save</button></div>`;
+const modalHead = title => `<div class="flex justify-between items-start gap-4 mb-6"><h2 id="modalTitle" class="text-xl font-semibold text-ink">${title}</h2>
+  <button type="button" onclick="closeModal()" aria-label="Close" class="${C.iconBtn} -mt-2 -mr-2">${ICON.x}</button></div>`;
+
+function userModal(id) {
+  const u = S.users.find(x => x.id === id);
+  const sel = (n, label, arr) => selectField({ id: `f-${n}`, name: n, label, options: opts(arr, u[n]) });
+  openModal(`${modalHead(`Edit ${esc(u.name)}`)}<form data-id="${esc(id)}" onsubmit="saveUser(event, this.dataset.id)" class="space-y-6">
+   <div class="grid sm:grid-cols-2 gap-6">${fld('name', 'Full name', u.name)}${fld('email', 'Email address', u.email, 'readonly')}${fld('phone', 'Phone', u.phone)}${fld('region', 'Home region', u.region)}
+   ${selectField({ id: 'f-gender', name: 'gender', label: 'Gender', options: genderOpts(u.gender) })}
+   ${field({ id: 'f-meal', name: 'meal_restrictions', label: 'Meal restrictions', value: u.meal_restrictions || '', optional: true })}
+   ${selectField({ id: 'f-role', name: 'role', label: 'Role', options: opts(['referee', 'assignor', 'admin'], u.role) })}
+   ${selectField({ id: 'f-active', name: 'active', label: 'Status', options: `<option value="1" ${u.active ? 'selected' : ''}>Active</option><option value="0" ${u.active ? '' : 'selected'}>Inactive</option>` })}</div>
+   <fieldset class="pt-6 border-t border-hairline"><legend class="text-base font-semibold text-ink">Ratings</legend>
+   <div class="mt-4 grid grid-cols-2 gap-6">${sel('foil', 'Foil', WR)}${sel('epee', 'Épée', WR)}${sel('sabre', 'Sabre', WR)}${sel('para', 'Para', PR)}</div></fieldset>${btns}</form>`);
+}
+async function saveUser(e, id) {
+  e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)), u = S.users.find(x => x.id === id);
+  const admins = S.users.filter(x => x.role === 'admin' && x.active).length;
+  if (u.role === 'admin' && u.active && (f.role !== 'admin' || f.active === '0') && admins < 2) return fieldErr('f-role', 'modalMsg', 'Keep at least one active admin.');
+  const row = { name: f.name.trim(), phone: f.phone.trim(), region: f.region.trim(), gender: f.gender, meal_restrictions: f.meal_restrictions.trim(), role: f.role, active: f.active === '1', foil: f.foil, epee: f.epee, sabre: f.sabre, para: f.para };
+  const r = await busy($('modalSave'), () => sb.from('profiles').update(row).eq('id', id));
+  if (fail(r, 'modalMsg')) return;
+  Object.assign(u, row); closeModal(); toast(`Saved ${u.name}.`);
+  if (id === S.uid) render(); else withFocus(rAdmin);
+}
+function evModal(id) {
+  const ev = id ? S.events.find(x => x.id === id) : { days: [] };
+  openModal(`${modalHead(`${id ? 'Edit' : 'Add'} tournament`)}<form data-id="${esc(id || '')}" onsubmit="saveEv(event, this.dataset.id)" class="space-y-6">
+   ${fld('name', 'Tournament name', ev.name)}${fld('date_range', 'Dates', ev.date_range, 'placeholder="e.g. Nov 28-29, 2026"')}${fld('location', 'Location', ev.location)}
+   <div><label for="f-days" class="${C.label}">Days, one per line</label><textarea id="f-days" name="days" rows="4" required aria-describedby="f-days-hint" class="${C.input} !h-auto py-3">${esc(ev.days.join('\n'))}</textarea>
+   <p id="f-days-hint" class="${C.hint}">Each line becomes one day referees can mark. Renaming a day hides answers already given for it.</p><p id="f-days-err" class="hidden ${C.err}"></p></div>${btns}</form>`);
+}
+async function saveEv(e, id) {
+  e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+  clearErrs(e.target);
+  const days = [...new Set(f.days.split('\n').map(x => x.trim()).filter(Boolean))];
+  if (!days.length) return fieldErr('f-days', 'modalMsg', 'Add at least one day.');
+  const row = { name: f.name.trim(), date_range: f.date_range.trim(), location: f.location.trim(), days };
+  const r = await busy($('modalSave'), () => id ? sb.from('events').update(row).eq('id', id) : sb.from('events').insert(row));
+  if (fail(r, 'modalMsg')) return;
+  closeModal();
+  if (id) { Object.assign(S.events.find(x => x.id === id), row); withFocus(rAdmin); toast('Tournament saved.'); }
+  else { await refresh(); toast('Tournament added.'); } // reload so the new row has its database id
+}
+</script>
+</body>
+</html>
